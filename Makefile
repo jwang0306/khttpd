@@ -1,5 +1,6 @@
 KDIR=/lib/modules/$(shell uname -r)/build
 
+ccflags-y := -std=gnu99 -Wno-declaration-after-statement
 CFLAGS_user = -std=gnu99 -Wall -Wextra -Werror
 LDFLAGS_user = -lpthread
 
@@ -7,6 +8,7 @@ obj-m += khttpd.o
 khttpd-objs := \
 	http_parser.o \
 	http_server.o \
+	bn.o \
 	main.o
 
 GIT_HOOKS := .git/hooks/applied
@@ -25,7 +27,7 @@ check: all
 
 clean:
 	make -C $(KDIR) M=$(PWD) clean
-	$(RM) htstress
+	$(RM) htstress bn
 
 # Download http_parser.[ch] from nodejs/http-parser repository
 # the inclusion of standard header files such as <string.h> will be replaced

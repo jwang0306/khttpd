@@ -4,6 +4,7 @@
 #include <linux/sched/signal.h>
 #include <linux/tcp.h>
 
+#include "bn.h"
 #include "http_parser.h"
 #include "http_server.h"
 
@@ -31,6 +32,7 @@
     "Connection: KeepAlive" CRLF CRLF "501 Not Implemented" CRLF
 
 #define RECV_BUFFER_SIZE 4096
+#define RESP_BUFFER_SIZE 4096
 
 struct http_request {
     struct socket *socket;
@@ -38,6 +40,68 @@ struct http_request {
     char request_url[128];
     int complete;
 };
+
+static bn_t fib_double_clz(long long k)
+{
+    bn_t a, b;
+    bn_init(&a, 0);
+    bn_init(&b, 1);
+    if (k == 0)
+        return a;
+    if (k == 1)
+        return b;
+    for (int i = 31 - __builtin_clz(k); i >= 0; --i) {
+        bn_t t1, t2, tmp1, tmp2;
+        bn_add(&tmp1, &b, &b);
+        bn_sub(&tmp2, &tmp1, &a);
+        bn_mul(&t1, &a, &tmp2);
+        bn_mul(&tmp1, &a, &a);
+        bn_mul(&tmp2, &b, &b);
+        bn_add(&t2, &tmp1, &tmp2);
+        a = t1;
+        b = t2;
+        if (k & (1ull << i)) {
+            bn_add(&t1, &a, &b);
+            a = b;
+            b = t1;
+        }
+    }
+    return a;
+}
+
+static char *http_fib_response(char *request_url)
+{
+    char *resp_buf = kmalloc(RESP_BUFFER_SIZE, GFP_KERNEL);
+    memset(resp_buf, 0, RESP_BUFFER_SIZE);
+    char *tmp = kmalloc(MAX_DIGITS, GFP_KERNEL);
+    memset(tmp, 0, MAX_DIGITS);
+
+    char *cpy = kmalloc(strlen(request_url) + 1, GFP_KERNEL);
+    snprintf(cpy, strlen(request_url) + 1, "%s", request_url);
+    cpy[strlen(request_url)] = '\0';
+    char *n = NULL;
+    strsep(&cpy, "/");
+    strsep(&cpy, "/");
+    n = strsep(&cpy, "/");
+    long int k;
+    kstrtol(n, 10, &k);
+
+    bn_t result = fib_double_clz((long long) k);
+    for (int i = 0, index = 0; i < result.num_digits; ++i)
+        index += snprintf(&tmp[index], MAX_DIGITS - index, "%d",
+                          result.digits[result.num_digits - i - 1]);
+
+    snprintf(resp_buf, RESP_BUFFER_SIZE,
+             ""
+             "HTTP/1.1 200 OK" CRLF "Server: " KBUILD_MODNAME CRLF
+             "Content-Type: text/plain" CRLF "Content-Length: %ld" CRLF
+             "Connection: Keep-Alive" CRLF CRLF "%s",
+             strlen(tmp), tmp);
+    // printk(KERN_ALERT "resp_buf %s", resp_buf);
+    kfree(tmp);
+    kfree(cpy);
+    return resp_buf;
+}
 
 static int http_server_recv(struct socket *sock, char *buf, size_t size)
 {
@@ -81,7 +145,8 @@ static int http_server_response(struct http_request *request, int keep_alive)
     if (request->method != HTTP_GET)
         response = keep_alive ? HTTP_RESPONSE_501_KEEPALIVE : HTTP_RESPONSE_501;
     else
-        response = keep_alive ? HTTP_RESPONSE_200_KEEPALIVE_DUMMY
+        // response = keep_alive ? HTTP_RESPONSE_200_KEEPALIVE_DUMMY
+        response = keep_alive ? http_fib_response(request->request_url)
                               : HTTP_RESPONSE_200_DUMMY;
     http_server_send(request->socket, response, strlen(response));
     return 0;

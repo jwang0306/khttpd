@@ -222,7 +222,7 @@ static void http_server_worker(struct work_struct *work)
         .on_body = http_parser_callback_body,
         .on_message_complete = http_parser_callback_message_complete};
     struct http_request request;
-    struct khttpd_work_data *worker =
+    struct khttpd_work_data *wdata =
         container_of(work, struct khttpd_work_data, khttpd_work);
 
     allow_signal(SIGKILL);
@@ -234,11 +234,11 @@ static void http_server_worker(struct work_struct *work)
         return;
     }
 
-    request.socket = worker->sock;
+    request.socket = wdata->sock;
     http_parser_init(&parser, HTTP_REQUEST);
     parser.data = &request;
     while (!daemon.is_stopped) {
-        int ret = http_server_recv(worker->sock, buf, RECV_BUFFER_SIZE - 1);
+        int ret = http_server_recv(wdata->sock, buf, RECV_BUFFER_SIZE - 1);
         if (ret <= 0) {
             if (ret)
                 pr_err("recv error: %d\n", ret);
@@ -248,10 +248,10 @@ static void http_server_worker(struct work_struct *work)
         if (request.complete && !http_should_keep_alive(&parser))
             break;
     }
-    /* release worker after finished */
-    kernel_sock_shutdown(worker->sock, SHUT_RDWR);
-    sock_release(worker->sock);
-    kfree(worker);
+    /* release work after finished */
+    kernel_sock_shutdown(wdata->sock, SHUT_RDWR);
+    sock_release(wdata->sock);
+    kfree(wdata);
 
     kfree(buf);
 }

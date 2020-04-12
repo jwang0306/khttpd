@@ -3,8 +3,6 @@
 
 #include <linux/workqueue.h>
 #include <net/sock.h>
-// #include <linux/module.h>
-static DEFINE_MUTEX(mutex);
 
 struct http_server_param {
     struct socket *listen_socket;
